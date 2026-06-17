@@ -42,6 +42,9 @@ Just enough fields to render correct invoices — name, ABN, email, phone, addre
 
 ![Clients](docs/screenshots/clients.png)
 
+### AI-assisted drafting
+Paste an email, chat thread, or scope note — or attach a quote/receipt image or PDF — and Claude pre-fills the New Invoice form: line items, quantities, ex-GST unit prices, GST handling, and dates. It matches the client against your existing client book (or proposes a new one to create in a click). Nothing is saved automatically: the AI produces a **reviewable draft**, you check the numbers, then hit *Create Invoice*. Uses Claude's structured-output mode so the result always maps cleanly onto the invoice schema. Opt-in — set `ANTHROPIC_API_KEY` to enable; the rest of the app works without it.
+
 ## Tech stack
 
 | Layer | Choice | Notes |
@@ -50,6 +53,7 @@ Just enough fields to render correct invoices — name, ABN, email, phone, addre
 | PDF | reportlab | Hand-rolled layout for full control of the invoice template |
 | Frontend | Next.js 16 (App Router) + React 19 | Turbopack dev server |
 | Styling | Tailwind CSS v4 | Plus lucide-react for icons |
+| AI | Anthropic Claude (Opus 4.8) | Structured-output extraction of invoices from text, images, and PDFs — see `backend/routers/ai.py` |
 | Future | Basiq (Open Banking) | Scaffolded — see `backend/routers/bank.py`; activated once client volume justifies the per-user pricing |
 
 ## Getting started
@@ -64,6 +68,8 @@ This script:
 1. Creates a Python venv in `backend/`, installs `requirements.txt`
 2. Starts FastAPI on `:8001`
 3. Starts Next.js dev server on `:3002`
+
+**Optional — enable AI drafting:** copy `backend/.env.example` to `backend/.env` and add your `ANTHROPIC_API_KEY`. Without it the app runs fine; the AI Assist panel just shows a setup hint.
 
 Then:
 - App: <http://localhost:3002>
@@ -88,6 +94,7 @@ backend/
     settings.py         Business profile + auto-numbering counter
     summary.py          FY-aligned tax summary aggregations
     bank.py             Basiq integration (scaffolded)
+    ai.py               AI invoice drafting (Claude structured extraction)
 
 frontend/
   app/                  Next.js App Router pages

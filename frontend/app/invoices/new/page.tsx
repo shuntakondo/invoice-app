@@ -1,8 +1,11 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { getClients, getSettings, getInvoice, createInvoice, Client, BusinessSettings } from "@/lib/api";
-import { Plus, Trash2, AlertCircle } from "lucide-react";
+import {
+  getClients, getSettings, getInvoice, createInvoice, createClient,
+  getAIStatus, draftInvoiceFromAI, Client, BusinessSettings, AIInvoiceDraft,
+} from "@/lib/api";
+import { Plus, Trash2, AlertCircle, Sparkles, Loader2, Paperclip, X } from "lucide-react";
 import Link from "next/link";
 import { HelpTip } from "@/components/HelpTip";
 
@@ -44,10 +47,21 @@ function NewInvoiceForm() {
   });
   const [items, setItems] = useState<LineItemDraft[]>([emptyItem()]);
 
+  // AI Assist
+  const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
+  const [aiText, setAiText] = useState("");
+  const [aiFiles, setAiFiles] = useState<File[]>([]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [aiSummary, setAiSummary] = useState("");
+  const [suggestedClient, setSuggestedClient] = useState<{ name: string; email: string; abn: string } | null>(null);
+  const [creatingClient, setCreatingClient] = useState(false);
+
   useEffect(() => {
-    Promise.all([getClients(), getSettings()]).then(([c, s]) => {
+    Promise.all([getClients(), getSettings(), getAIStatus()]).then(([c, s, ai]) => {
       setClients(c);
       setSettings(s);
+      setAiConfigured(ai.configured);
     });
   }, []);
 
@@ -90,6 +104,78 @@ function NewInvoiceForm() {
   }, 0);
 
   const fmt = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD" });
+
+  // --- AI Assist ---
+  const onFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files || []);
+    setAiFiles((prev) => [...prev, ...picked].slice(0, 8));
+    e.target.value = ""; // allow re-selecting the same file
+  };
+  const removeAiFile = (i: number) => setAiFiles((prev) => prev.filter((_, idx) => idx !== i));
+
+  const applyDraft = (d: AIInvoiceDraft) => {
+    setForm((f) => ({
+      ...f,
+      client_id: d.matched_client_id ? String(d.matched_client_id) : f.client_id,
+      issue_date: d.issue_date || f.issue_date,
+      due_date: d.due_date || f.due_date,
+      notes: d.notes ?? f.notes,
+    }));
+    if (d.line_items.length > 0) {
+      setItems(d.line_items.map((it) => ({
+        description: it.description,
+        quantity: String(it.quantity ?? 1),
+        unit_price: String(it.unit_price ?? ""),
+        gst_rate: String(it.gst_rate ?? 10),
+      })));
+    }
+    setSuggestedClient(
+      !d.matched_client_id && d.suggested_client_name
+        ? { name: d.suggested_client_name, email: d.suggested_client_email || "", abn: d.suggested_client_abn || "" }
+        : null
+    );
+    setAiSummary(d.summary);
+  };
+
+  const generate = async () => {
+    if (!aiText.trim() && aiFiles.length === 0) {
+      setAiError("Add some text or attach a file first");
+      return;
+    }
+    setAiLoading(true);
+    setAiError("");
+    setAiSummary("");
+    try {
+      const draft = await draftInvoiceFromAI(aiText, aiFiles);
+      applyDraft(draft);
+    } catch (e: unknown) {
+      setAiError(e instanceof Error ? e.message : "AI request failed");
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const createSuggestedClient = async () => {
+    if (!suggestedClient) return;
+    setCreatingClient(true);
+    setAiError("");
+    try {
+      const c = await createClient({
+        name: suggestedClient.name,
+        email: suggestedClient.email || undefined,
+        phone: undefined,
+        address: undefined,
+        abn: suggestedClient.abn || undefined,
+      });
+      setClients(await getClients());
+      setForm((f) => ({ ...f, client_id: String(c.id) }));
+      setSuggestedClient(null);
+    } catch (e: unknown) {
+      setAiError(e instanceof Error ? e.message : "Could not create client");
+    } finally {
+      setCreatingClient(false);
+    }
+  };
 
   const submit = async () => {
     if (!form.client_id) { setError("Select a client"); return; }
@@ -164,6 +250,83 @@ function NewInvoiceForm() {
       )}
 
       <div className="space-y-5">
+        {/* AI Assist */}
+        <Section title="✨ AI Assist">
+          {aiConfigured === false ? (
+            <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+              <AlertCircle size={16} className="mt-0.5 shrink-0" />
+              <span>
+                AI drafting is off. Set <span className="font-mono">ANTHROPIC_API_KEY</span> in the backend
+                environment to enable it (see <span className="font-mono">backend/.env.example</span>).
+              </span>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-xs text-gray-500">
+                Paste an email, chat, or project notes — or attach a quote/receipt image or PDF — and let AI
+                pre-fill this invoice. Review everything before saving.
+              </p>
+              <textarea
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                rows={4}
+                placeholder="e.g. Hi, can you invoice Acme for the 3 days of design work we agreed at $1,200/day plus the $400 logo revision?"
+                value={aiText}
+                onChange={(e) => setAiText(e.target.value)}
+              />
+              {aiFiles.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {aiFiles.map((f, i) => (
+                    <span key={i} className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 text-xs rounded-full pl-3 pr-1.5 py-1">
+                      {f.name}
+                      <button type="button" onClick={() => removeAiFile(i)} className="p-0.5 hover:bg-gray-200 rounded-full">
+                        <X size={12} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex items-center gap-3">
+                <label className="inline-flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer hover:text-gray-800">
+                  <Paperclip size={14} />
+                  Attach image / PDF
+                  <input type="file" multiple accept="image/*,application/pdf,text/plain" className="hidden" onChange={onFiles} />
+                </label>
+                <button
+                  type="button"
+                  onClick={generate}
+                  disabled={aiLoading || aiConfigured === null}
+                  className="ml-auto inline-flex items-center gap-1.5 bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
+                >
+                  {aiLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                  {aiLoading ? "Reading..." : "Generate draft"}
+                </button>
+              </div>
+              {aiError && <p className="text-red-600 text-sm">{aiError}</p>}
+              {aiSummary && (
+                <div className="bg-violet-50 border border-violet-100 rounded-lg px-3 py-2 text-sm text-violet-800">
+                  <span className="font-semibold">AI:</span> {aiSummary}
+                </div>
+              )}
+              {suggestedClient && (
+                <div className="bg-violet-50 border border-violet-100 rounded-lg px-3 py-2 text-sm text-violet-900 flex items-center justify-between gap-3">
+                  <span>
+                    Suggested new client: <span className="font-semibold">{suggestedClient.name}</span>
+                    {suggestedClient.abn ? ` · ABN ${suggestedClient.abn}` : ""}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={createSuggestedClient}
+                    disabled={creatingClient}
+                    className="shrink-0 bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50"
+                  >
+                    {creatingClient ? "Creating..." : "Create & select"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </Section>
+
         {/* Invoice details */}
         <Section title="Invoice Details">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

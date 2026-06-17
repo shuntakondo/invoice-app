@@ -143,3 +143,38 @@ export const updateSettings = (data: Omit<BusinessSettings, "next_invoice_seq" |
 export const connectBank = () => request<{ url: string; user_id: string }>("/bank/connect", { method: "POST" });
 export const getBankTransactions = () => request<BankTransaction[]>("/bank/transactions");
 export const getReconcileMatches = () => request<ReconcileMatch[]>("/bank/reconcile");
+
+// AI invoice drafting
+export interface AIDraftLineItem {
+  description: string;
+  quantity: number;
+  unit_price: number;
+  gst_rate: number;
+}
+
+export interface AIInvoiceDraft {
+  matched_client_id: number | null;
+  suggested_client_name: string | null;
+  suggested_client_email: string | null;
+  suggested_client_abn: string | null;
+  issue_date: string | null;
+  due_date: string | null;
+  line_items: AIDraftLineItem[];
+  notes: string | null;
+  summary: string;
+}
+
+export const getAIStatus = () => request<{ configured: boolean }>("/ai/status");
+
+export const draftInvoiceFromAI = async (text: string, files: File[]): Promise<AIInvoiceDraft> => {
+  // Multipart upload — let the browser set the Content-Type boundary (don't use the JSON helper).
+  const fd = new FormData();
+  fd.append("text", text);
+  files.forEach((f) => fd.append("files", f));
+  const res = await fetch(`${BASE}/ai/draft-invoice`, { method: "POST", body: fd });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+};
