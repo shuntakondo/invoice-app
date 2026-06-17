@@ -43,7 +43,9 @@ Just enough fields to render correct invoices — name, ABN, email, phone, addre
 ![Clients](docs/screenshots/clients.png)
 
 ### Local AI assistant
-A chat assistant that runs **entirely on your machine** via [Ollama](https://ollama.com) — no API key, no data leaving the laptop, in keeping with the rest of the app. Ask questions grounded in your own data (*"what's my total unpaid?"*, *"which invoices are overdue?"*) and it answers by calling read tools, never guessing numbers. Ask it to *do* things (*"invoice Davide for 2 days at $800/day"*, *"mark INV-003 paid"*) and it prepares the action as a **confirmation card** — money-touching changes only execute after you click *Confirm*, reusing the same APIs as the manual flow. Opt-in: install Ollama and pull a tool-capable model to enable it; the rest of the app works without it.
+A chat assistant that runs **entirely on your machine** via [Ollama](https://ollama.com) — no API key, no data leaving the laptop, in keeping with the rest of the app. Ask questions grounded in your own data (*"what's my total unpaid?"*, *"which invoices are overdue?"*) and it answers by calling read tools, never guessing numbers. Ask it to *do* things (*"invoice Davide for 2 days at $800/day"*, *"mark INV-003 paid"*) and it prepares the action as a **confirmation card** — money-touching changes only execute after you click *Confirm*, reusing the same APIs as the manual flow.
+
+**Drag & drop** a quote or receipt (image, PDF, or text) onto the chat and it'll invoice from it: images run through a local vision model (qwen2.5vl) to transcribe the billable lines, which the tool-using agent then turns into a draft invoice — a two-model pipeline that keeps both vision *and* tool-calling local. Opt-in: install Ollama and pull a tool-capable model to enable it; the rest of the app works without it.
 
 ## Tech stack
 

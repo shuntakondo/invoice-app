@@ -151,6 +151,13 @@ export interface AIStatus {
   detail: string;
   available_models: string[];
   provider: string;
+  vision_model: string;
+  vision_available: boolean;
+}
+
+export interface ExtractResponse {
+  text: string;
+  warnings: string[];
 }
 
 export interface ChatMessageT {
@@ -184,3 +191,15 @@ export interface ChatResponse {
 export const getAIStatus = () => request<AIStatus>("/ai/status");
 export const sendChat = (messages: ChatMessageT[]) =>
   request<ChatResponse>("/ai/chat", { method: "POST", body: JSON.stringify({ messages }) });
+
+export const extractFromFiles = async (files: File[]): Promise<ExtractResponse> => {
+  // Multipart — images go through the local vision model, PDFs/text are read directly.
+  const fd = new FormData();
+  files.forEach((f) => fd.append("files", f));
+  const res = await fetch(`${BASE}/ai/extract`, { method: "POST", body: fd });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+};
