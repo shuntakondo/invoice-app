@@ -17,6 +17,8 @@ MODEL = "claude-opus-4-8"
 SUPPORTED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 MAX_FILES = 8
 MAX_FILE_BYTES = 8 * 1024 * 1024  # 8 MB per file
+MAX_TOTAL_BYTES = 24 * 1024 * 1024  # 24 MB across all attachments (caps token cost)
+MAX_TEXT_CHARS = 50_000  # bound the pasted text we send to the model
 
 SYSTEM_PROMPT = """You are an assistant inside an Australian freelancer's invoicing app. \
 Turn raw project information — emails, chat messages, quotes, scope notes, or photos/PDFs of \
@@ -55,10 +57,14 @@ def ai_status():
 def _build_content(text: str, files: List[UploadFile]) -> list:
     """Turn the user's text + uploads into Claude message content blocks."""
     blocks: list = []
+    total_bytes = 0
     for f in files:
-        raw = f.file.read()
+        raw = f.file.read()  # read once; reuse `raw` (don't re-read the spooled file)
         if len(raw) > MAX_FILE_BYTES:
             raise HTTPException(status_code=400, detail=f"File '{f.filename}' exceeds the 8 MB limit")
+        total_bytes += len(raw)
+        if total_bytes > MAX_TOTAL_BYTES:
+            raise HTTPException(status_code=400, detail="Attachments are too large in total (max 24 MB)")
         ctype = (f.content_type or "").lower()
         b64 = base64.standard_b64encode(raw).decode("utf-8")
         if ctype in SUPPORTED_IMAGE_TYPES:
@@ -103,6 +109,8 @@ def draft_invoice(
         )
     if len(files) > MAX_FILES:
         raise HTTPException(status_code=400, detail=f"Attach at most {MAX_FILES} files")
+    if len(text) > MAX_TEXT_CHARS:
+        raise HTTPException(status_code=400, detail=f"Text is too long (max {MAX_TEXT_CHARS:,} characters)")
 
     content = _build_content(text, files)
 
@@ -131,9 +139,10 @@ def draft_invoice(
             output_format=schemas.AIInvoiceDraft,
         )
     except anthropic.APIError as e:
+        # Surface the API-level message (e.g. bad key / quota) — useful for setup.
         raise HTTPException(status_code=502, detail=f"AI request failed: {getattr(e, 'message', str(e))}")
-    except Exception as e:  # network / validation / unexpected
-        raise HTTPException(status_code=502, detail=f"AI request failed: {e}")
+    except Exception:  # network / validation / unexpected — don't leak internals
+        raise HTTPException(status_code=502, detail="AI request failed unexpectedly. Check the backend logs and try again.")
 
     if getattr(response, "stop_reason", None) == "refusal":
         raise HTTPException(status_code=400, detail="The AI declined this request. Try different input.")

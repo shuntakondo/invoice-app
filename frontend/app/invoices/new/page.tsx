@@ -121,14 +121,18 @@ function NewInvoiceForm() {
       due_date: d.due_date || f.due_date,
       notes: d.notes ?? f.notes,
     }));
-    if (d.line_items.length > 0) {
-      setItems(d.line_items.map((it) => ({
-        description: it.description,
-        quantity: String(it.quantity ?? 1),
-        unit_price: String(it.unit_price ?? ""),
-        gst_rate: String(it.gst_rate ?? 10),
-      })));
-    }
+    // Reset to a clean blank row when the AI found nothing billable.
+    setItems(
+      d.line_items.length > 0
+        ? d.line_items.map((it) => ({
+            description: it.description,
+            quantity: String(it.quantity && it.quantity > 0 ? it.quantity : 1),
+            unit_price: String(it.unit_price ?? ""),
+            // AU GST is binary: coerce any non-zero rate to the 10% option.
+            gst_rate: it.gst_rate === 0 ? "0" : "10",
+          }))
+        : [emptyItem()]
+    );
     setSuggestedClient(
       !d.matched_client_id && d.suggested_client_name
         ? { name: d.suggested_client_name, email: d.suggested_client_email || "", abn: d.suggested_client_abn || "" }
@@ -179,8 +183,8 @@ function NewInvoiceForm() {
 
   const submit = async () => {
     if (!form.client_id) { setError("Select a client"); return; }
-    if (items.some((it) => !it.description || !it.unit_price)) {
-      setError("All line items need a description and price");
+    if (items.some((it) => !it.description || !(parseFloat(it.unit_price) > 0) || !(parseFloat(it.quantity) > 0))) {
+      setError("Every line item needs a description, a quantity above 0, and a price above 0");
       return;
     }
     setSaving(true);
