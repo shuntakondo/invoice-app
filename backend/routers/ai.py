@@ -327,6 +327,7 @@ def chat(req: schemas.ChatRequest, db: Session = Depends(get_db)):
                for m in req.messages if m.role in ("user", "assistant") and m.content.strip()]
     if not history:
         raise HTTPException(status_code=400, detail="Send a message")
+    history = history[-24:]  # bound the context so long chats don't overflow the local model
 
     sys = f"{SYSTEM_PROMPT}\n\nToday's date is {date.today().isoformat()}."
     messages = [{"role": "system", "content": sys}] + history
@@ -335,7 +336,6 @@ def chat(req: schemas.ChatRequest, db: Session = Depends(get_db)):
     proposals: list = []
     reply = ""
 
-    nudged = False
     try:
         for _ in range(MAX_STEPS):
             resp = client.chat(model=model, messages=messages, tools=TOOLS,
@@ -344,16 +344,16 @@ def chat(req: schemas.ChatRequest, db: Session = Depends(get_db)):
             messages.append(msg)  # preserve tool_calls for loop coherence
             calls = msg.tool_calls or []
             if not calls:
-                if (msg.content or "").strip():
-                    reply = msg.content
+                content = (msg.content or "").strip()
+                if content:
+                    reply = content
                     break
-                # Empty turn (model returned nothing) — nudge once, then give up.
-                if nudged:
-                    break
-                nudged = True
-                messages.append({"role": "system", "content": "Reply to the user's last message now, in plain text."})
-                continue
-            nudged = False  # the model made progress
+                # Empty turn — retry once WITHOUT tools, which reliably forces a
+                # plain-text answer even when tool-mode returns nothing.
+                messages.append({"role": "system", "content": "Answer the user's last message directly and concisely, in plain text."})
+                retry = client.chat(model=model, messages=messages, options={"temperature": 0, "num_ctx": OLLAMA_NUM_CTX})
+                reply = (retry.message.content or "").strip()
+                break
             for tc in calls:
                 name = tc.function.name
                 args = dict(tc.function.arguments or {})
