@@ -253,7 +253,7 @@ export default function AssistantPage() {
               <div className="flex items-center gap-2 font-semibold text-violet-900">
                 <Sparkles size={14} /> {it.proposal.title}
               </div>
-              <p className="text-violet-800 mt-1">{it.proposal.summary}</p>
+              <p className="text-violet-800 mt-1 whitespace-pre-line">{it.proposal.summary}</p>
               {it.status === "done" ? (
                 <div className="flex items-center gap-2 mt-2 text-green-700">
                   <CheckCircle2 size={15} />
