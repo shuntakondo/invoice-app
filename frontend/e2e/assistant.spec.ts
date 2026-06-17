@@ -124,6 +124,17 @@ test("the chat panel fills the viewport height", async ({ page }) => {
   await page.screenshot({ path: "e2e/screenshots/06-layout.png" }); // viewport-sized
 });
 
+test("the composer grows with multi-line input", async ({ page }) => {
+  await mockCommon(page);
+  await page.goto("/assistant");
+  const ta = page.getByPlaceholder(/Ask a question/);
+  const before = (await ta.boundingBox())!.height;
+  await ta.fill("line one\nline two\nline three\nline four");
+  const after = (await ta.boundingBox())!.height;
+  expect(after).toBeGreaterThan(before + 10);
+  await page.screenshot({ path: "e2e/screenshots/07-grow.png" });
+});
+
 test("shows a setup hint when Ollama is not configured", async ({ page }) => {
   await mockCommon(page, {
     ...STATUS_OK, configured: false, available_models: [],

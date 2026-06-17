@@ -36,6 +36,7 @@ export default function AssistantPage() {
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     getAIStatus().then(setStatus).catch(() => setStatus(null));
@@ -44,6 +45,14 @@ export default function AssistantPage() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, proposals, loading]);
+
+  // Auto-grow the composer to fit the text (up to a max), and shrink back when cleared.
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${Math.min(ta.scrollHeight, 192)}px`;
+  }, [input]);
 
   const addFiles = (picked: File[]) => setFiles((prev) => [...prev, ...picked].slice(0, MAX_FILES));
   const removeFile = (i: number) => setFiles((prev) => prev.filter((_, idx) => idx !== i));
@@ -162,7 +171,7 @@ export default function AssistantPage() {
     /\.(png|jpe?g|gif|webp)$/i.test(name) ? <ImageIcon size={12} /> : <FileText size={12} />;
 
   return (
-    <div className="max-w-3xl h-[calc(100vh-7.5rem)] flex flex-col">
+    <div className="max-w-5xl h-[calc(100vh-7.5rem)] flex flex-col">
       <div className="flex items-center gap-2 mb-1 shrink-0">
         <Sparkles size={22} className="text-violet-600" />
         <h1 className="text-2xl font-bold text-gray-900">Assistant</h1>
@@ -345,7 +354,8 @@ export default function AssistantPage() {
             <Paperclip size={16} />
           </button>
           <textarea
-            className="flex-1 resize-none border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+            ref={textareaRef}
+            className="flex-1 resize-none max-h-48 overflow-y-auto border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
             rows={1}
             placeholder={notReady ? "Set up Ollama to start chatting…" : "Ask a question, or drop a quote/receipt…"}
             value={input}
