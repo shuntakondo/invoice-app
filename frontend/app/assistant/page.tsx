@@ -317,7 +317,13 @@ export default function AssistantPage() {
             disabled={notReady}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+              // Don't submit while an IME composition is active (e.g. Japanese conversion):
+              // Enter there confirms the candidate, not the message. keyCode 229 covers
+              // browsers that don't set isComposing on the committing keystroke.
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                e.preventDefault();
+                send();
+              }
             }}
           />
           <button
