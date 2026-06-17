@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 
 
@@ -132,3 +132,33 @@ class TaxSummary(BaseModel):
     paid_invoices: int
     unpaid_invoices: int
     monthly: List[MonthlySummary]
+
+
+# AI invoice drafting
+class AIStatusOut(BaseModel):
+    configured: bool  # true if an Anthropic API key is available
+
+
+class AIDraftLineItem(BaseModel):
+    description: str = Field(description="What the line item is for")
+    quantity: float = Field(default=1, description="Number of units / hours / days")
+    unit_price: float = Field(description="GST-EXCLUSIVE price per unit, in AUD")
+    gst_rate: float = Field(default=10.0, description="GST percentage: 10 for taxable, 0 for GST-free")
+
+
+class AIInvoiceDraft(BaseModel):
+    """Structured invoice draft extracted by the AI from free text and/or attachments."""
+    matched_client_id: Optional[int] = Field(
+        default=None,
+        description="id of an existing client that clearly matches the input, else null",
+    )
+    suggested_client_name: Optional[str] = Field(
+        default=None, description="Proposed client name when no existing client matches"
+    )
+    suggested_client_email: Optional[str] = Field(default=None, description="Proposed client email, if known")
+    suggested_client_abn: Optional[str] = Field(default=None, description="Proposed client ABN, if known")
+    issue_date: Optional[str] = Field(default=None, description="Issue date as YYYY-MM-DD")
+    due_date: Optional[str] = Field(default=None, description="Due date as YYYY-MM-DD")
+    line_items: List[AIDraftLineItem] = Field(description="The billable line items (empty if none found)")
+    notes: Optional[str] = Field(default=None, description="Optional note to print on the invoice")
+    summary: str = Field(description="1-3 sentence plain-English summary of what was extracted and any assumptions")

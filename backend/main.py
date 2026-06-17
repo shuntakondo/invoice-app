@@ -1,8 +1,13 @@
+from dotenv import load_dotenv
+
+# Load backend/.env (e.g. ANTHROPIC_API_KEY) before anything reads the environment.
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine
 import models
-from routers import clients, invoices, summary, settings, bank
+from routers import clients, invoices, summary, settings, bank, ai
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -21,6 +26,7 @@ app.include_router(clients.router, prefix="/api")
 app.include_router(invoices.router, prefix="/api")
 app.include_router(summary.router, prefix="/api")
 app.include_router(bank.router, prefix="/api")
+app.include_router(ai.router, prefix="/api")
 
 
 @app.get("/api/health")
