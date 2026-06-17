@@ -46,6 +46,9 @@ Rules:
 - CRITICAL: to create an invoice or mark one paid you MUST call create_invoice / mark_invoice_paid in
   this turn. Never claim you have prepared or done something without actually calling the tool — if you
   do not call the tool, nothing happens.
+- When creating an invoice, fill `notes` with anything that belongs on the invoice but isn't a line
+  item: payment terms, a PO or reference number, a milestone breakdown, or context for the client. Do
+  NOT put the sender's own bank details in notes — they are already printed on every invoice.
 - Be concise and lead with the answer."""
 
 TOOLS = [
@@ -278,10 +281,13 @@ def build_invoice_proposal(db: Session, args: dict):
 
     subtotal = sum(i["quantity"] * i["unit_price"] for i in items)
     gst = sum(i["quantity"] * i["unit_price"] * i["gst_rate"] / 100 for i in items)
+    note = str(args.get("notes") or "").strip()
     summary = (f"{display} · {len(items)} item(s) · subtotal ${subtotal:,.2f} "
                f"+ GST ${gst:,.2f} = ${subtotal + gst:,.2f} · due {due}")
+    if note:
+        summary += f"\nNote: {note if len(note) <= 140 else note[:140] + '…'}"
     payload = {"client_id": client_id, "new_client": new_client, "issue_date": issue,
-               "due_date": due, "notes": args.get("notes"), "line_items": items}
+               "due_date": due, "notes": note or None, "line_items": items}
     return schemas.Proposal(kind="invoice", title="Create invoice", summary=summary, payload=payload)
 
 
