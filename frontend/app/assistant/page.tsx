@@ -3,11 +3,12 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   getAIStatus, sendChat, extractFromFiles, createClient, createInvoice, markPaid,
-  AIStatus, ChatMessageT, Proposal, InvoiceProposalPayload, MarkPaidProposalPayload,
+  AIStatus, ChatMessageT, Proposal, InvoiceProposalPayload, MarkPaidProposalPayload, Invoice,
 } from "@/lib/api";
 import {
-  Sparkles, Send, Loader2, AlertCircle, CheckCircle2, X, Paperclip, FileText, Image as ImageIcon,
+  Sparkles, Send, Loader2, AlertCircle, CheckCircle2, X, Paperclip, FileText, Image as ImageIcon, Pencil,
 } from "lucide-react";
+import InvoiceForm, { InvoiceFormInitial } from "@/components/InvoiceForm";
 
 type PStatus = "pending" | "working" | "done" | "error";
 interface PItem { proposal: Proposal; status: PStatus; resultText?: string; link?: string; error?: string; }
@@ -32,6 +33,7 @@ export default function AssistantPage() {
   const [extracting, setExtracting] = useState(false);
   const [error, setError] = useState("");
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -129,6 +131,30 @@ export default function AssistantPage() {
     } catch (e: unknown) {
       patch(idx, { status: "error", error: e instanceof Error ? e.message : "Action failed" });
     }
+  };
+
+  const proposalToInitial = (p: Proposal): InvoiceFormInitial => {
+    const pl = p.payload as InvoiceProposalPayload;
+    return {
+      client_id: pl.client_id ? String(pl.client_id) : "",
+      issue_date: pl.issue_date,
+      due_date: pl.due_date,
+      notes: pl.notes || "",
+      items: pl.line_items.map((li) => ({
+        description: li.description,
+        quantity: String(li.quantity),
+        unit_price: String(li.unit_price),
+        gst_rate: li.gst_rate === 0 ? "0" : "10",
+      })),
+      suggestedNewClient: pl.new_client,
+    };
+  };
+
+  const onDrawerCreated = (inv: Invoice) => {
+    if (editingIdx !== null) {
+      patch(editingIdx, { status: "done", resultText: `Created ${inv.invoice_number}`, link: `/invoices/${inv.id}` });
+    }
+    setEditingIdx(null);
   };
 
   const notReady = status ? !status.configured : false;
@@ -238,14 +264,23 @@ export default function AssistantPage() {
                   )}
                 </div>
               ) : (
-                <div className="flex items-center gap-2 mt-3">
+                <div className="flex items-center gap-2 mt-3 flex-wrap">
+                  {it.proposal.kind === "invoice" && (
+                    <button
+                      onClick={() => setEditingIdx(idx)}
+                      disabled={it.status === "working"}
+                      className="inline-flex items-center gap-1.5 border border-violet-300 text-violet-700 hover:bg-violet-100 px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50"
+                    >
+                      <Pencil size={13} /> Review &amp; edit
+                    </button>
+                  )}
                   <button
                     onClick={() => confirm(idx)}
                     disabled={it.status === "working"}
                     className="inline-flex items-center gap-1.5 bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50"
                   >
                     {it.status === "working" ? <Loader2 size={13} className="animate-spin" /> : null}
-                    Confirm
+                    {it.proposal.kind === "invoice" ? "Create as-is" : "Confirm"}
                   </button>
                   <button
                     onClick={() => setProposals((prev) => prev.filter((_, i) => i !== idx))}
@@ -340,6 +375,30 @@ export default function AssistantPage() {
         <p className="text-xs text-gray-400 mt-2">
           Tip: images need a vision model — run <span className="font-mono">ollama pull {status.vision_model}</span> to read receipts/quotes. PDFs and text files work without it.
         </p>
+      )}
+
+      {/* Side drawer: edit the proposed invoice before creating it */}
+      {editingIdx !== null && proposals[editingIdx]?.proposal.kind === "invoice" && (
+        <>
+          <div className="fixed inset-0 bg-black/30 z-40" onClick={() => setEditingIdx(null)} />
+          <div className="fixed top-0 right-0 h-full w-full max-w-xl bg-gray-50 z-50 shadow-2xl overflow-y-auto">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white sticky top-0 z-10">
+              <h2 className="font-bold text-gray-900">Review &amp; edit invoice</h2>
+              <button onClick={() => setEditingIdx(null)} className="p-1.5 hover:bg-gray-100 rounded text-gray-500" aria-label="Close">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-4">
+              <InvoiceForm
+                initial={proposalToInitial(proposals[editingIdx].proposal)}
+                submitLabel="Create invoice"
+                compact
+                onCreated={onDrawerCreated}
+                onCancel={() => setEditingIdx(null)}
+              />
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
