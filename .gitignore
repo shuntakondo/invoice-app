@@ -27,6 +27,12 @@ frontend/build/
 frontend/*.tsbuildinfo
 frontend/next-env.d.ts
 frontend/.vercel
+# Playwright
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/playwright/.cache/
+frontend/e2e/screenshots/
 
 # ===== Env / secrets =====
 .env
