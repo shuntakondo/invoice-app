@@ -6,6 +6,9 @@ backend/*.db
 backend/*.db-journal
 backend/*.sqlite
 backend/*.sqlite3
+# Catch the app DB anywhere (e.g. if a tool runs from the repo root) — never commit it
+invoice_app.db
+invoice_app.db-journal
 *.pyc
 
 # ===== Frontend (Next.js) =====
