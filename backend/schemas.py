@@ -136,11 +136,18 @@ class TaxSummary(BaseModel):
 
 # AI assistant (local Ollama agent)
 class AIStatusOut(BaseModel):
-    configured: bool          # true if Ollama is reachable and the model is installed
-    model: str                # the configured Ollama model
+    configured: bool          # true if Ollama is reachable and the tool model is installed
+    model: str                # the configured Ollama tool model
     detail: str               # human-readable status / setup hint
     available_models: List[str] = []
     provider: str = "ollama"
+    vision_model: str = ""    # model used to read image/PDF attachments
+    vision_available: bool = False
+
+
+class ExtractResponse(BaseModel):
+    text: str                 # extracted text from attachments, for the agent
+    warnings: List[str] = []
 
 
 class ChatMessage(BaseModel):

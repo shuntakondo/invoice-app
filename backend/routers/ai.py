@@ -1,9 +1,11 @@
+import io
 import json
 import os
 from datetime import date, timedelta
+from typing import List
 
 import ollama
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -13,8 +15,18 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 
 # Fully local — no API key, nothing leaves the machine. Configure via backend/.env.
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5")          # tool-capable text model
+OLLAMA_VISION_MODEL = os.environ.get("OLLAMA_VISION_MODEL", "qwen2.5vl")  # reads images
 MAX_STEPS = 6  # cap the agent loop so a confused model can't spin forever
+MAX_FILES = 8
+MAX_FILE_BYTES = 8 * 1024 * 1024     # 8 MB per file
+MAX_TOTAL_BYTES = 24 * 1024 * 1024   # 24 MB across all attachments
+SUPPORTED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+VISION_PROMPT = (
+    "Transcribe all text in this document, then list any billable line items "
+    "(description, quantity, unit price), amounts, GST, dates, and the client or "
+    "business name. Output plain text only — no preamble."
+)
 
 SYSTEM_PROMPT = """You are the assistant inside an Australian freelancer's invoicing app. You help \
 the user by answering questions about their invoices, clients, and finances, and by preparing \
@@ -104,6 +116,17 @@ def _model_present(want: str, names: list) -> bool:
     return any(n == want or n.split(":")[0] == base for n in names)
 
 
+def _resolve_model(want: str, names: list) -> str:
+    """Map a configured name to the exact installed tag (e.g. qwen2.5vl -> qwen2.5vl:7b)."""
+    if want in names:
+        return want
+    base = want.split(":")[0]
+    for n in names:
+        if n.split(":")[0] == base:
+            return n
+    return want
+
+
 @router.get("/status", response_model=schemas.AIStatusOut)
 def ai_status():
     try:
@@ -111,16 +134,22 @@ def ai_status():
     except Exception:
         return schemas.AIStatusOut(
             configured=False, model=OLLAMA_MODEL, available_models=[],
+            vision_model=OLLAMA_VISION_MODEL, vision_available=False,
             detail=f"Ollama isn't reachable at {OLLAMA_HOST}. Install it from ollama.com, start it, "
                    f"then run: ollama pull {OLLAMA_MODEL}",
         )
+    vision_ok = _model_present(OLLAMA_VISION_MODEL, names)
     if not _model_present(OLLAMA_MODEL, names):
         return schemas.AIStatusOut(
             configured=False, model=OLLAMA_MODEL, available_models=names,
+            vision_model=OLLAMA_VISION_MODEL, vision_available=vision_ok,
             detail=f"Model '{OLLAMA_MODEL}' isn't installed. Run: ollama pull {OLLAMA_MODEL} "
                    f"(or set OLLAMA_MODEL in backend/.env to one you have).",
         )
-    return schemas.AIStatusOut(configured=True, model=OLLAMA_MODEL, available_models=names, detail="Ready")
+    return schemas.AIStatusOut(
+        configured=True, model=OLLAMA_MODEL, available_models=names,
+        vision_model=OLLAMA_VISION_MODEL, vision_available=vision_ok, detail="Ready",
+    )
 
 
 # --- Read tools (executed immediately) --------------------------------------
@@ -284,6 +313,7 @@ def chat(req: schemas.ChatRequest, db: Session = Depends(get_db)):
     status = ai_status()
     if not status.configured:
         raise HTTPException(status_code=400, detail=status.detail)
+    model = _resolve_model(OLLAMA_MODEL, status.available_models)
 
     history = [{"role": m.role, "content": m.content}
                for m in req.messages if m.role in ("user", "assistant") and m.content.strip()]
@@ -299,7 +329,7 @@ def chat(req: schemas.ChatRequest, db: Session = Depends(get_db)):
 
     try:
         for _ in range(MAX_STEPS):
-            resp = client.chat(model=OLLAMA_MODEL, messages=messages, tools=TOOLS, options={"temperature": 0})
+            resp = client.chat(model=model, messages=messages, tools=TOOLS, options={"temperature": 0})
             msg = resp.message
             messages.append(msg)  # preserve tool_calls for loop coherence
             calls = msg.tool_calls or []
@@ -342,3 +372,74 @@ def chat(req: schemas.ChatRequest, db: Session = Depends(get_db)):
     if not reply:
         reply = "I've prepared the action below — please review and confirm." if proposals else "(no response)"
     return schemas.ChatResponse(reply=reply, proposals=proposals)
+
+
+# --- Attachment extraction (images via the vision model; PDFs/text directly) ----
+
+def _extract_image(raw: bytes, vision_model: str) -> str:
+    resp = _client().chat(
+        model=vision_model,
+        messages=[{"role": "user", "content": VISION_PROMPT, "images": [raw]}],
+        options={"temperature": 0},
+    )
+    return (resp.message.content or "").strip()
+
+
+def _extract_pdf_text(raw: bytes) -> str:
+    from pypdf import PdfReader
+    reader = PdfReader(io.BytesIO(raw))
+    return "\n".join((page.extract_text() or "") for page in reader.pages).strip()
+
+
+@router.post("/extract", response_model=schemas.ExtractResponse)
+def extract(files: List[UploadFile] = File(default=[])):
+    """Turn dropped attachments into text the agent can use. Images go through the
+    local vision model; PDFs and text files are read directly."""
+    if not files:
+        raise HTTPException(status_code=400, detail="No files attached")
+    if len(files) > MAX_FILES:
+        raise HTTPException(status_code=400, detail=f"Attach at most {MAX_FILES} files")
+
+    try:
+        names = _available_models()
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"Ollama isn't reachable at {OLLAMA_HOST}.")
+    vision_model = _resolve_model(OLLAMA_VISION_MODEL, names) if _model_present(OLLAMA_VISION_MODEL, names) else None
+
+    parts: List[str] = []
+    warnings: List[str] = []
+    total = 0
+    for f in files:
+        raw = f.file.read()
+        if len(raw) > MAX_FILE_BYTES:
+            raise HTTPException(status_code=400, detail=f"File '{f.filename}' exceeds the 8 MB limit")
+        total += len(raw)
+        if total > MAX_TOTAL_BYTES:
+            raise HTTPException(status_code=400, detail="Attachments are too large in total (max 24 MB)")
+        ctype = (f.content_type or "").lower()
+        try:
+            if ctype in SUPPORTED_IMAGE_TYPES:
+                if not vision_model:
+                    warnings.append(f"{f.filename}: no vision model installed — run `ollama pull {OLLAMA_VISION_MODEL}` to read images.")
+                    continue
+                text = _extract_image(raw, vision_model)
+                parts.append(f"[Image: {f.filename}]\n{text}" if text else f"[Image: {f.filename}] (no text found)")
+            elif ctype == "application/pdf":
+                text = _extract_pdf_text(raw)
+                if text:
+                    parts.append(f"[PDF: {f.filename}]\n{text}")
+                else:
+                    warnings.append(f"{f.filename}: no extractable text (a scanned PDF?). Attach an image of it instead.")
+            else:
+                try:
+                    decoded = raw.decode("utf-8").strip()
+                except UnicodeDecodeError:
+                    warnings.append(f"{f.filename}: unsupported file type ({ctype or 'unknown'}). Use an image, PDF, or text file.")
+                    continue
+                parts.append(f"[File: {f.filename}]\n{decoded}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            warnings.append(f"{f.filename}: could not read ({e}).")
+
+    return schemas.ExtractResponse(text="\n\n".join(parts), warnings=warnings)
