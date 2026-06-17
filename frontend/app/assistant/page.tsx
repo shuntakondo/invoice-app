@@ -162,18 +162,18 @@ export default function AssistantPage() {
     /\.(png|jpe?g|gif|webp)$/i.test(name) ? <ImageIcon size={12} /> : <FileText size={12} />;
 
   return (
-    <div className="max-w-3xl">
-      <div className="flex items-center gap-2 mb-1">
+    <div className="max-w-3xl h-[calc(100vh-7.5rem)] flex flex-col">
+      <div className="flex items-center gap-2 mb-1 shrink-0">
         <Sparkles size={22} className="text-violet-600" />
         <h1 className="text-2xl font-bold text-gray-900">Assistant</h1>
       </div>
-      <p className="text-sm text-gray-500 mb-5">
+      <p className="text-sm text-gray-500 mb-5 shrink-0">
         Ask about your invoices and finances, drop in a quote or receipt, or have it prepare invoices and
         payments — all running locally on Ollama.
       </p>
 
       {notReady && (
-        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4 mb-5 text-sm text-amber-800">
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4 mb-5 text-sm text-amber-800 shrink-0">
           <AlertCircle size={16} className="mt-0.5 shrink-0" />
           <div>
             <p>{status?.detail}</p>
@@ -187,7 +187,7 @@ export default function AssistantPage() {
       )}
 
       <div
-        className={`relative bg-white border rounded-xl shadow-sm flex flex-col h-[62vh] transition-colors ${
+        className={`relative bg-white border rounded-xl shadow-sm flex flex-col flex-1 min-h-0 transition-colors ${
           dragging ? "border-violet-400 ring-2 ring-violet-200" : "border-gray-200"
         }`}
         onDragOver={(e) => { e.preventDefault(); if (!notReady) setDragging(true); }}
@@ -372,7 +372,7 @@ export default function AssistantPage() {
         </div>
       </div>
       {status && status.configured && !status.vision_available && (
-        <p className="text-xs text-gray-400 mt-2">
+        <p className="text-xs text-gray-400 mt-2 shrink-0">
           Tip: images need a vision model — run <span className="font-mono">ollama pull {status.vision_model}</span> to read receipts/quotes. PDFs and text files work without it.
         </p>
       )}

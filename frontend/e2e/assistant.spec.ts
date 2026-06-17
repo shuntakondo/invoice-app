@@ -112,6 +112,18 @@ test("attaching a file extracts it and sends the text to the agent", async ({ pa
   expect(chatBody).toContain("Website audit $1200"); // extracted text was forwarded to the agent
 });
 
+test("the chat panel fills the viewport height", async ({ page }) => {
+  await mockCommon(page);
+  await page.goto("/assistant");
+  await expect(page.getByPlaceholder(/Ask a question/)).toBeVisible();
+  // The composer should sit near the bottom of the viewport, not float mid-page.
+  const composer = page.getByPlaceholder(/Ask a question/);
+  const box = await composer.boundingBox();
+  const viewport = page.viewportSize();
+  expect(box && viewport && box.y).toBeGreaterThan(viewport!.height * 0.7);
+  await page.screenshot({ path: "e2e/screenshots/06-layout.png" }); // viewport-sized
+});
+
 test("shows a setup hint when Ollama is not configured", async ({ page }) => {
   await mockCommon(page, {
     ...STATUS_OK, configured: false, available_models: [],
