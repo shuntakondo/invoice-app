@@ -32,6 +32,9 @@ Rules:
 - Currency is AUD. GST in Australia is 10%: use gst_rate 10 for taxable items, 0 for GST-free.
 - unit_price is GST-EXCLUSIVE per unit. Dates are YYYY-MM-DD.
 - To act on a specific invoice (e.g. mark it paid), first look it up with list_invoices to get its id.
+- CRITICAL: to create an invoice or mark one paid you MUST call create_invoice / mark_invoice_paid in
+  this turn. Never claim you have prepared or done something without actually calling the tool — if you
+  do not call the tool, nothing happens.
 - Be concise and lead with the answer."""
 
 TOOLS = [
@@ -320,7 +323,15 @@ def chat(req: schemas.ChatRequest, db: Session = Depends(get_db)):
         else:
             reply = reply or "I've prepared what I could — see below."
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Ollama request failed: {e}")
+        msg_text = str(e)
+        if "does not support tools" in msg_text:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model '{OLLAMA_MODEL}' doesn't support tool calling. Set OLLAMA_MODEL in "
+                       f"backend/.env to a tool-capable model such as qwen2.5, llama3.1, or mistral "
+                       f"(e.g. ollama pull qwen2.5).",
+            )
+        raise HTTPException(status_code=502, detail=f"Ollama request failed: {msg_text}")
 
     if not reply:
         reply = "I've prepared the action below — please review and confirm." if proposals else "(no response)"
