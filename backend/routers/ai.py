@@ -18,6 +18,7 @@ OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5")          # tool-capable text model
 OLLAMA_VISION_MODEL = os.environ.get("OLLAMA_VISION_MODEL", "qwen2.5vl")  # reads images
 MAX_STEPS = 6  # cap the agent loop so a confused model can't spin forever
+OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "8192"))  # context window (default 2048 is too small)
 MAX_FILES = 8
 MAX_FILE_BYTES = 8 * 1024 * 1024     # 8 MB per file
 MAX_TOTAL_BYTES = 24 * 1024 * 1024   # 24 MB across all attachments
@@ -40,7 +41,8 @@ user must confirm in the UI. Call them when the user asks to create an invoice o
 After proposing, tell the user briefly what you prepared and that they should confirm it.
 
 Rules:
-- Currency is AUD. GST in Australia is 10%: use gst_rate 10 for taxable items, 0 for GST-free.
+- Currency is AUD. GST in Australia is 10%: use gst_rate 10 for taxable items, 0 for GST-free. If the
+  user says they are not registered for GST, or that no GST applies, set gst_rate 0 on every line item.
 - unit_price is GST-EXCLUSIVE per unit. Dates are YYYY-MM-DD.
 - To act on a specific invoice (e.g. mark it paid), first look it up with list_invoices to get its id.
 - CRITICAL: to create an invoice or mark one paid you MUST call create_invoice / mark_invoice_paid in
@@ -333,15 +335,25 @@ def chat(req: schemas.ChatRequest, db: Session = Depends(get_db)):
     proposals: list = []
     reply = ""
 
+    nudged = False
     try:
         for _ in range(MAX_STEPS):
-            resp = client.chat(model=model, messages=messages, tools=TOOLS, options={"temperature": 0})
+            resp = client.chat(model=model, messages=messages, tools=TOOLS,
+                               options={"temperature": 0, "num_ctx": OLLAMA_NUM_CTX})
             msg = resp.message
             messages.append(msg)  # preserve tool_calls for loop coherence
             calls = msg.tool_calls or []
             if not calls:
-                reply = msg.content or ""
-                break
+                if (msg.content or "").strip():
+                    reply = msg.content
+                    break
+                # Empty turn (model returned nothing) — nudge once, then give up.
+                if nudged:
+                    break
+                nudged = True
+                messages.append({"role": "system", "content": "Reply to the user's last message now, in plain text."})
+                continue
+            nudged = False  # the model made progress
             for tc in calls:
                 name = tc.function.name
                 args = dict(tc.function.arguments or {})
@@ -376,7 +388,8 @@ def chat(req: schemas.ChatRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=502, detail=f"Ollama request failed: {msg_text}")
 
     if not reply:
-        reply = "I've prepared the action below — please review and confirm." if proposals else "(no response)"
+        reply = ("I've prepared the action below — please review and confirm." if proposals
+                 else "I didn't get a response from the model. Please try rephrasing, or send a shorter message.")
     return schemas.ChatResponse(reply=reply, proposals=proposals)
 
 
