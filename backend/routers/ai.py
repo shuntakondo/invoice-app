@@ -222,7 +222,7 @@ def _safe_date(value, default: str) -> str:
         return default
 
 
-def _coerce_line_items(raw) -> list:
+def _coerce_line_items(raw, force_gst_zero: bool = False) -> list:
     items = []
     for it in raw or []:
         if not isinstance(it, dict):
@@ -240,20 +240,31 @@ def _coerce_line_items(raw) -> list:
             price = float(it.get("unit_price", 0) or 0)
         except (TypeError, ValueError):
             price = 0.0
-        # AU GST is binary: anything non-zero becomes 10%.
-        gst = 0.0 if it.get("gst_rate") in (0, 0.0, "0") else 10.0
+        # AU GST is binary: anything non-zero becomes 10%, unless the user isn't GST-registered.
+        gst = 0.0 if (force_gst_zero or it.get("gst_rate") in (0, 0.0, "0")) else 10.0
         items.append({"description": desc, "quantity": qty, "unit_price": price, "gst_rate": gst})
     return items
 
 
-def build_invoice_proposal(db: Session, args: dict):
-    items = _coerce_line_items(args.get("line_items"))
+# Conversation signals that the business charges no GST (forces gst_rate 0).
+def _detect_no_gst(history: list) -> bool:
+    text = " ".join(m.get("content", "") for m in history).lower()
+    return any(k in text for k in (
+        "not registered for gst", "not gst registered", "no gst", "gst-free", "gst free",
+        "without gst", "exclude gst", "gst非登録", "gst未登録", "gstなし", "消費税なし",
+    ))
+
+
+def build_invoice_proposal(db: Session, args: dict, force_gst_zero: bool = False):
+    items = _coerce_line_items(args.get("line_items"), force_gst_zero)
     if not items:
         return None
 
     today = date.today()
     issue = _safe_date(args.get("issue_date"), today.isoformat())
     due = _safe_date(args.get("due_date"), (date.fromisoformat(issue) + timedelta(days=14)).isoformat())
+    if due < issue:  # guard against a hallucinated or past due date
+        due = (date.fromisoformat(issue) + timedelta(days=14)).isoformat()
 
     client_id = args.get("client_id")
     new_client = None
@@ -303,6 +314,55 @@ def build_mark_paid_proposal(db: Session, args: dict):
                             payload={"invoice_id": inv.id, "paid_date": paid_date})
 
 
+# Reliable fallback: when the model narrates an invoice instead of calling the
+# tool, recover a proposal with structured output (format=schema), which local
+# models follow far more reliably than tool calls.
+INVOICE_EXTRACT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "client_name": {"type": "string"},
+        "issue_date": {"type": "string"},
+        "due_date": {"type": "string"},
+        "notes": {"type": "string"},
+        "line_items": {"type": "array", "items": {"type": "object", "properties": {
+            "description": {"type": "string"},
+            "quantity": {"type": "number"},
+            "unit_price": {"type": "number"},
+            "gst_rate": {"type": "number"},
+        }, "required": ["description", "unit_price"]}},
+    },
+    "required": ["line_items"],
+}
+
+_EXTRACT_PROMPT = (
+    "Extract the invoice to create as JSON matching the schema. unit_price is GST-EXCLUSIVE per "
+    "unit. Set gst_rate 10 normally, or 0 if the user isn't registered for GST / says no GST. "
+    "Dates as YYYY-MM-DD; if a date isn't stated, omit it (don't invent one). If only a GST-inclusive "
+    "total is given, convert to ex-GST. Put payment terms, references, or context in notes — never bank details."
+)
+
+
+def _narrated_invoice(reply: str) -> bool:
+    """True when the reply describes creating an invoice (so we should recover a proposal)."""
+    r = reply.lower()
+    creating = (any(k in r for k in ("create", "creating", "prepare", "prepared", "i'll invoice"))
+                or any(k in reply for k in ("作成します", "作成いたします", "インボイスを作成", "請求書を作成")))
+    invoiceish = "invoice" in r or "インボイス" in reply or "請求書" in reply
+    has_amount = "$" in reply or "unit price" in r or "line item" in r
+    return creating and invoiceish and has_amount
+
+
+def _extract_invoice_proposal(client, model: str, history: list, reply: str, db: Session, force_gst_zero: bool = False):
+    msgs = history + [{"role": "assistant", "content": reply}, {"role": "user", "content": _EXTRACT_PROMPT}]
+    try:
+        resp = client.chat(model=model, messages=msgs, format=INVOICE_EXTRACT_SCHEMA,
+                           options={"temperature": 0, "num_ctx": OLLAMA_NUM_CTX})
+        data = json.loads(resp.message.content or "{}")
+    except Exception:
+        return None
+    return build_invoice_proposal(db, data, force_gst_zero=force_gst_zero)
+
+
 READ_TOOLS = {
     "list_clients": tool_list_clients,
     "list_invoices": tool_list_invoices,
@@ -328,6 +388,7 @@ def chat(req: schemas.ChatRequest, db: Session = Depends(get_db)):
     if not history:
         raise HTTPException(status_code=400, detail="Send a message")
     history = history[-24:]  # bound the context so long chats don't overflow the local model
+    no_gst = _detect_no_gst(history)
 
     sys = f"{SYSTEM_PROMPT}\n\nToday's date is {date.today().isoformat()}."
     messages = [{"role": "system", "content": sys}] + history
@@ -364,7 +425,8 @@ def chat(req: schemas.ChatRequest, db: Session = Depends(get_db)):
                         result = {"error": str(e)}
                     messages.append({"role": "tool", "tool_name": name, "content": json.dumps(result, default=str)})
                 elif name in ACTION_TOOLS:
-                    proposal = ACTION_TOOLS[name](db, args)
+                    proposal = (build_invoice_proposal(db, args, force_gst_zero=no_gst)
+                                if name == "create_invoice" else ACTION_TOOLS[name](db, args))
                     if proposal is None:
                         messages.append({"role": "tool", "tool_name": name,
                                          "content": json.dumps({"error": "Could not prepare that action; recheck the details."})})
@@ -386,6 +448,13 @@ def chat(req: schemas.ChatRequest, db: Session = Depends(get_db)):
                        f"(e.g. ollama pull qwen2.5).",
             )
         raise HTTPException(status_code=502, detail=f"Ollama request failed: {msg_text}")
+
+    # Recover a proposal when the model narrated an invoice but never called the tool.
+    if not any(p.kind == "invoice" for p in proposals) and _narrated_invoice(reply):
+        prop = _extract_invoice_proposal(client, model, history, reply, db, force_gst_zero=no_gst)
+        if prop:
+            proposals.append(prop)
+            reply = "I've prepared the invoice below — review and confirm."
 
     if not reply:
         reply = ("I've prepared the action below — please review and confirm." if proposals
