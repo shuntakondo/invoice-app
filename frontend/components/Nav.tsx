@@ -1,12 +1,13 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FileText, Users, BarChart3, Plus, Settings, Landmark } from "lucide-react";
+import { FileText, Users, BarChart3, Plus, Settings, Landmark, Sparkles } from "lucide-react";
 
 const links = [
   { href: "/", label: "Dashboard", icon: BarChart3 },
   { href: "/invoices", label: "Invoices", icon: FileText },
   { href: "/clients", label: "Clients", icon: Users },
+  { href: "/assistant", label: "Assistant", icon: Sparkles },
   { href: "/bank", label: "Bank", icon: Landmark },
   { href: "/summary", label: "Tax Summary", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: Settings },

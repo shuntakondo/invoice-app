@@ -144,37 +144,43 @@ export const connectBank = () => request<{ url: string; user_id: string }>("/ban
 export const getBankTransactions = () => request<BankTransaction[]>("/bank/transactions");
 export const getReconcileMatches = () => request<ReconcileMatch[]>("/bank/reconcile");
 
-// AI invoice drafting
-export interface AIDraftLineItem {
-  description: string;
-  quantity: number;
-  unit_price: number;
-  gst_rate: number;
+// AI assistant (local Ollama agent)
+export interface AIStatus {
+  configured: boolean;
+  model: string;
+  detail: string;
+  available_models: string[];
+  provider: string;
 }
 
-export interface AIInvoiceDraft {
-  matched_client_id: number | null;
-  suggested_client_name: string | null;
-  suggested_client_email: string | null;
-  suggested_client_abn: string | null;
-  issue_date: string | null;
-  due_date: string | null;
-  line_items: AIDraftLineItem[];
+export interface ChatMessageT {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface InvoiceProposalPayload {
+  client_id: number | null;
+  new_client: { name: string } | null;
+  issue_date: string;
+  due_date: string;
   notes: string | null;
+  line_items: { description: string; quantity: number; unit_price: number; gst_rate: number }[];
+}
+export interface MarkPaidProposalPayload {
+  invoice_id: number;
+  paid_date: string;
+}
+export interface Proposal {
+  kind: "invoice" | "mark_paid";
+  title: string;
   summary: string;
+  payload: InvoiceProposalPayload | MarkPaidProposalPayload;
+}
+export interface ChatResponse {
+  reply: string;
+  proposals: Proposal[];
 }
 
-export const getAIStatus = () => request<{ configured: boolean }>("/ai/status");
-
-export const draftInvoiceFromAI = async (text: string, files: File[]): Promise<AIInvoiceDraft> => {
-  // Multipart upload — let the browser set the Content-Type boundary (don't use the JSON helper).
-  const fd = new FormData();
-  fd.append("text", text);
-  files.forEach((f) => fd.append("files", f));
-  const res = await fetch(`${BASE}/ai/draft-invoice`, { method: "POST", body: fd });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `HTTP ${res.status}`);
-  }
-  return res.json();
-};
+export const getAIStatus = () => request<AIStatus>("/ai/status");
+export const sendChat = (messages: ChatMessageT[]) =>
+  request<ChatResponse>("/ai/chat", { method: "POST", body: JSON.stringify({ messages }) });

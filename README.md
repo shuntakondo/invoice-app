@@ -42,8 +42,8 @@ Just enough fields to render correct invoices — name, ABN, email, phone, addre
 
 ![Clients](docs/screenshots/clients.png)
 
-### AI-assisted drafting
-Paste an email, chat thread, or scope note — or attach a quote/receipt image or PDF — and Claude pre-fills the New Invoice form: line items, quantities, ex-GST unit prices, GST handling, and dates. It matches the client against your existing client book (or proposes a new one to create in a click). Nothing is saved automatically: the AI produces a **reviewable draft**, you check the numbers, then hit *Create Invoice*. Uses Claude's structured-output mode so the result always maps cleanly onto the invoice schema. Opt-in — set `ANTHROPIC_API_KEY` to enable; the rest of the app works without it.
+### Local AI assistant
+A chat assistant that runs **entirely on your machine** via [Ollama](https://ollama.com) — no API key, no data leaving the laptop, in keeping with the rest of the app. Ask questions grounded in your own data (*"what's my total unpaid?"*, *"which invoices are overdue?"*) and it answers by calling read tools, never guessing numbers. Ask it to *do* things (*"invoice Davide for 2 days at $800/day"*, *"mark INV-003 paid"*) and it prepares the action as a **confirmation card** — money-touching changes only execute after you click *Confirm*, reusing the same APIs as the manual flow. Opt-in: install Ollama and pull a tool-capable model to enable it; the rest of the app works without it.
 
 ## Tech stack
 
@@ -53,7 +53,7 @@ Paste an email, chat thread, or scope note — or attach a quote/receipt image o
 | PDF | reportlab | Hand-rolled layout for full control of the invoice template |
 | Frontend | Next.js 16 (App Router) + React 19 | Turbopack dev server |
 | Styling | Tailwind CSS v4 | Plus lucide-react for icons |
-| AI | Anthropic Claude (Opus 4.8) | Structured-output extraction of invoices from text, images, and PDFs — see `backend/routers/ai.py` |
+| AI | Ollama (local LLM, e.g. qwen2.5) | Agentic assistant — answers questions over your data and prepares invoices/payments via tool calls, fully offline. See `backend/routers/ai.py` |
 | Future | Basiq (Open Banking) | Scaffolded — see `backend/routers/bank.py`; activated once client volume justifies the per-user pricing |
 
 ## Getting started
@@ -69,7 +69,7 @@ This script:
 2. Starts FastAPI on `:8001`
 3. Starts Next.js dev server on `:3002`
 
-**Optional — enable AI drafting:** copy `backend/.env.example` to `backend/.env` and add your `ANTHROPIC_API_KEY`. Without it the app runs fine; the AI Assist panel just shows a setup hint.
+**Optional — enable the AI assistant:** install [Ollama](https://ollama.com), run `ollama pull qwen2.5`, and keep Ollama running. The **Assistant** tab then works fully locally — no API key, no data leaving your machine. Host/model are configurable in `backend/.env` (see `.env.example`); without Ollama the tab shows a setup hint and the rest of the app is unaffected.
 
 Then:
 - App: <http://localhost:3002>
@@ -94,13 +94,14 @@ backend/
     settings.py         Business profile + auto-numbering counter
     summary.py          FY-aligned tax summary aggregations
     bank.py             Basiq integration (scaffolded)
-    ai.py               AI invoice drafting (Claude structured extraction)
+    ai.py               Local AI assistant (Ollama agent: Q&A + invoice/payment actions)
 
 frontend/
   app/                  Next.js App Router pages
     invoices/[id]       Invoice detail
     invoices/new        New invoice form (handles ?from=<id> for duplicate)
     invoices/page.tsx   Invoice list
+    assistant           Local AI assistant chat (Ollama)
     clients, summary, settings, bank
   components/
     Nav.tsx
