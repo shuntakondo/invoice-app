@@ -4,7 +4,6 @@ from datetime import date, timedelta
 
 import ollama
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -228,9 +227,16 @@ def build_invoice_proposal(db: Session, args: dict):
         client_id = None
     name = str(args.get("client_name") or "").strip()
     if client_id is None and name:
-        match = db.query(models.Client).filter(func.lower(models.Client.name) == name.lower()).first()
-        if match:
-            client_id = match.id
+        # Match the model's (often partial) name against the client book: exact first,
+        # then a unique substring match (e.g. "Davide" -> "Davide Soldati").
+        lname = name.lower()
+        all_clients = db.query(models.Client).all()
+        exact = [c for c in all_clients if c.name.lower() == lname]
+        partial = [c for c in all_clients if lname in c.name.lower() or c.name.lower() in lname]
+        if len(exact) == 1:
+            client_id = exact[0].id
+        elif not exact and len(partial) == 1:
+            client_id = partial[0].id
         else:
             new_client = {"name": name}
 
