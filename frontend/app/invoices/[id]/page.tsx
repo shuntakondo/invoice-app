@@ -152,21 +152,21 @@ ${invoice.sender_name}`;
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b-2 border-blue-700 text-blue-700 text-xs font-semibold">
-              <th className="text-left py-2">Description</th>
-              <th className="text-center py-2">Qty</th>
-              <th className="text-right py-2">Unit Price</th>
-              <th className="text-center py-2">GST</th>
-              <th className="text-right py-2">Amount</th>
+              <th className="text-left py-2 pr-4">Description</th>
+              <th className="text-center py-2 px-3 w-12 whitespace-nowrap">Qty</th>
+              <th className="text-right py-2 px-3 w-28 whitespace-nowrap">Unit Price</th>
+              <th className="text-center py-2 px-3 w-14 whitespace-nowrap">GST</th>
+              <th className="text-right py-2 pl-3 w-28 whitespace-nowrap">Amount</th>
             </tr>
           </thead>
           <tbody>
             {invoice.line_items.map((item, i) => (
               <tr key={item.id} className={i % 2 === 0 ? "bg-gray-50" : ""}>
-                <td className="py-2 pr-4">{item.description}</td>
-                <td className="py-2 text-center">{item.quantity}</td>
-                <td className="py-2 text-right">{fmt(item.unit_price)}</td>
-                <td className="py-2 text-center">{item.gst_rate}%</td>
-                <td className="py-2 text-right font-medium">{fmt(item.quantity * item.unit_price)}</td>
+                <td className="py-2 pr-4 align-top break-words">{item.description}</td>
+                <td className="py-2 px-3 text-center align-top whitespace-nowrap">{item.quantity}</td>
+                <td className="py-2 px-3 text-right align-top whitespace-nowrap">{fmt(item.unit_price)}</td>
+                <td className="py-2 px-3 text-center align-top whitespace-nowrap">{item.gst_rate}%</td>
+                <td className="py-2 pl-3 text-right align-top whitespace-nowrap font-medium">{fmt(item.quantity * item.unit_price)}</td>
               </tr>
             ))}
           </tbody>
