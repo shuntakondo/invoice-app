@@ -34,6 +34,9 @@ frontend/blob-report/
 frontend/playwright/.cache/
 frontend/e2e/screenshots/
 
+# ===== Personal documents (invoices, etc.) — never commit =====
+documents/
+
 # ===== Env / secrets =====
 .env
 .env.*
