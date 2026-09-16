@@ -17,8 +17,9 @@ export default function Dashboard() {
   const totalInvoiced = invoices.reduce((s, i) => s + i.total, 0);
   const totalPaid = invoices.filter((i) => i.paid).reduce((s, i) => s + i.total, 0);
   const totalUnpaid = invoices.filter((i) => !i.paid).reduce((s, i) => s + i.total, 0);
+  const todayStr = new Date().toISOString().split("T")[0];
   const overdueCount = invoices.filter(
-    (i) => !i.paid && new Date(i.due_date) < new Date()
+    (i) => !i.paid && i.due_date < todayStr
   ).length;
 
   const recent = invoices.slice(0, 5);
@@ -137,7 +138,7 @@ export function StatusBadge({ paid, dueDate }: { paid: boolean; dueDate: string 
       </span>
     );
   }
-  const overdue = new Date(dueDate) < new Date();
+  const overdue = dueDate < new Date().toISOString().split("T")[0];
   return (
     <span
       className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
